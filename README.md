@@ -1,6 +1,6 @@
 # Schedule a weekly legal matter digest in Java
 
-The choice here is pragmatic: keep matter selection deterministic in Java, and let Infrai own the weekly schedule through one API and one `INFRAI_API_KEY`; the task URL remains the boundary where your mail delivery workflow actually executes. I am skeptical of claims that background schedulers are "fire and forget"; you still need to reason about what happens when the POST to the task URL is delivered twice, or not at all.
+The decision is simple: keep matter selection deterministic in Java, and let Infrai hold the weekly schedule through one API and one `INFRAI_API_KEY`; the task URL remains the place where your mail delivery workflow runs.
 
 Run the working path first:
 
@@ -10,7 +10,7 @@ export DIGEST_TASK_URL="https://your-service.example/jobs/weekly-legal-digest"
 ./run-example.sh
 ```
 
-The example previews two teaching-friendly cases before registering the schedule: an unsigned matter becomes `Deliver signed document`, while a signed matter with a deadline in the next seven days becomes `Follow up before deadline`. A signed matter due later stays out of this week's digest. This is a deliberate simplification of the consistency model; the preview read is not transactional with the schedule registration, so a crash between the two leaves you with a computed digest that was never persisted.
+The example previews two teaching-friendly cases before registering the schedule: an unsigned matter becomes `Deliver signed document`, while a signed matter with a deadline in the next seven days becomes `Follow up before deadline`. A signed matter due later stays out of this week's digest.
 
 Expected shape:
 
@@ -21,15 +21,15 @@ Weekly legal digest preview:
 Scheduled weekly digest job: job_weekly_42
 ```
 
-Dates in the preview follow the day you run it; the job identifier is returned by Infrai. Note that the identifier is opaque and you should not parse structure out of it.
+Dates in the preview follow the day you run it; the job identifier is returned by Infrai.
 
 ## Read the example like a lesson
 
 `LegalDigestExample` is the explanatory entry point. It creates three matters, asks `WeeklyLegalDigest` to make the business decision, prints the concrete email-ready items, and then asks `InfraiCronClient` to register `0 9 * * 1` with the configured task URL.
 
-The small reusable part has two responsibilities. `WeeklyLegalDigest` owns intake, signed-document delivery, and deadline follow-up rules. `InfraiCronClient` owns the request boundary: explicit `POST`, bearer authentication from the environment, an idempotency key for create retries, 429 backoff with `Retry-After`, and envelope decoding before status decisions. The durability of the schedule depends on that idempotency key surviving retries; if your client regenerates it on each attempt, you get duplicate scheduled jobs under partial failure.
+The small reusable part has two responsibilities. `WeeklyLegalDigest` owns intake, signed-document delivery, and deadline follow-up rules. `InfraiCronClient` owns the request boundary: explicit `POST`, bearer authentication from the environment, an idempotency key for create retries, 429 backoff with `Retry-After`, and envelope decoding before status decisions.
 
-The one real gotcha is the order of that last step. Read `{ok, data, error, metadata}` first, because a business rejection still carries useful structured error information; the client turns it into `InfraiException` with its code and caller-facing status instead of discarding it. I have seen teams swallow the envelope and then wonder why the schedule silently did not appear.
+The one real gotcha is the order of that last step. Read `{ok, data, error, metadata}` first, because a business rejection still carries useful structured error information; the client turns it into `InfraiException` with its code and caller-facing status instead of discarding it.
 
 ## Prove the weekly decision locally
 
@@ -45,11 +45,11 @@ Expected result:
 PASS: digest decision and cron request boundary
 ```
 
-The test uses an in-memory transport, so it needs no key and makes no network request. The runnable example uses only JDK classes and plain REST, with no SDK to install. That matters more than it sounds: a plain REST call from any language with no SDK means the storage and cron boundary does not rot when your Java toolchain moves.
+The test uses an in-memory transport, so it needs no key and makes no network request. The runnable example uses only JDK classes and plain REST, with no SDK to install.
 
 ## Layered configuration
 
-`DigestConfig.fromEnvironment` is the outer configuration layer. `INFRAI_API_KEY` and `DIGEST_TASK_URL` are required, `DIGEST_CRON` defaults to Monday at 09:00, and the base URI plus request timeout are held in the same immutable record. In a Spring application, construct this record from your configuration bean and inject it into `InfraiCronClient`; the domain module stays unchanged. Keeping the domain module free of HTTP concerns is the only way I trust the selection logic to be unit-testable without a live credential.
+`DigestConfig.fromEnvironment` is the outer configuration layer. `INFRAI_API_KEY` and `DIGEST_TASK_URL` are required, `DIGEST_CRON` defaults to Monday at 09:00, and the base URI plus request timeout are held in the same immutable record. In a Spring application, construct this record from your configuration bean and inject it into `InfraiCronClient`; the domain module stays unchanged.
 
 The task URL must accept the scheduled HTTP call and run your mail sender. This repository deliberately models the selection and scheduling boundary, while the actual email template and provider remain application choices.
 
